@@ -63,17 +63,27 @@ function Tutorial({ onGo }) {
 
 function SwipeCard({ card, locked, onSwipe }) {
   const x = useMotionValue(0);
+  const opacity = useMotionValue(1);
   const rotate = useTransform(x, [-200, 200], [-8, 8]);
   const redOpacity = useTransform(x, [-THRESHOLD, 0], [0.4, 0]);
   const greenOpacity = useTransform(x, [0, THRESHOLD], [0, 0.4]);
   const [imgOpen, setImgOpen] = useState(false);
+  const [flying, setFlying] = useState(false);
 
-  const fly = (dir) =>
-    animate(x, dir * 700, { duration: 0.22 }).then(() => onSwipe(dir < 0 ? "buzzer" : "bukan"));
+  const fly = (dir) => {
+    if (flying || locked) return;
+    setFlying(true);
+    Promise.all([
+      animate(x, dir * 500, { duration: 0.22, ease: "easeOut" }),
+      animate(opacity, 0, { duration: 0.2, ease: "easeOut" }),
+    ]).then(() => {
+      onSwipe(dir < 0 ? "buzzer" : "bukan");
+    });
+  };
 
   useEffect(() => {
     const onKey = (e) => {
-      if (locked || imgOpen) return;
+      if (locked || imgOpen || flying) return;
       if (e.key === "ArrowLeft") fly(-1);
       if (e.key === "ArrowRight") fly(1);
     };
@@ -82,14 +92,15 @@ function SwipeCard({ card, locked, onSwipe }) {
   });
 
   return (
-    <>
+    <div className="flex w-full flex-col items-center gap-3">
       <motion.article
-        drag={locked || imgOpen ? false : "x"}
+        drag={locked || imgOpen || flying ? false : "x"}
         dragMomentum={false}
-        dragElastic={0.5}
+        dragElastic={0.4}
         dragConstraints={{ left: 0, right: 0 }}
-        style={{ x, rotate }}
+        style={{ x, opacity, rotate }}
         onDragEnd={(_, info) => {
+          if (flying || locked) return;
           if (Math.abs(info.offset.x) > THRESHOLD) fly(Math.sign(info.offset.x));
           else animate(x, 0, { type: "spring", stiffness: 400, damping: 30 });
         }}
@@ -129,6 +140,26 @@ function SwipeCard({ card, locked, onSwipe }) {
         </div>
       </motion.article>
 
+      {/* Tombol aksi geser/pilih cepat (sangat membantu di mobile) */}
+      <div className="flex w-full max-w-md items-center justify-between gap-3 pt-1">
+        <button
+          type="button"
+          disabled={locked || flying}
+          onClick={() => fly(-1)}
+          className="flex-1 rounded-xl border-2 border-no/30 bg-no/10 px-3 py-2.5 font-display text-sm font-bold text-no transition-all hover:bg-no hover:text-white active:scale-95 disabled:opacity-40"
+        >
+          👈 Buzzer (Kiri)
+        </button>
+        <button
+          type="button"
+          disabled={locked || flying}
+          onClick={() => fly(1)}
+          className="flex-1 rounded-xl border-2 border-yes/30 bg-yes/10 px-3 py-2.5 font-display text-sm font-bold text-yes transition-all hover:bg-yes hover:text-white active:scale-95 disabled:opacity-40"
+        >
+          Bukan Buzzer (Kanan) 👉
+        </button>
+      </div>
+
       {/* Lightbox untuk gambar bukti */}
       {imgOpen && card.image && (
         <div
@@ -146,7 +177,7 @@ function SwipeCard({ card, locked, onSwipe }) {
           </div>
         </div>
       )}
-    </>
+    </div>
   );
 }
 
@@ -154,7 +185,7 @@ function Feedback({ card, fb, last, onNext }) {
   const tone = fb.ok ? "text-yes" : "text-no";
   return (
     <div className="fixed inset-0 z-10 flex items-end justify-center bg-ink/50 p-3 sm:items-center">
-      <div role="dialog" aria-modal="true" className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5">
+      <div role="dialog" aria-modal="true" className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 shadow-2xl">
         <h3 className={`font-display text-3xl font-extrabold ${tone}`}>{fb.ok ? "Jawaban benar ✓" : "Kurang tepat ✗"}</h3>
         <p className="mt-1 font-semibold">Klasifikasi: {LABEL[card.category]}</p>
         {card.image && (
@@ -189,26 +220,29 @@ function Game({ deck, onFinish }) {
   };
 
   return (
-    <section className="mx-auto flex min-h-screen max-w-md flex-col items-center gap-4 px-4 py-6">
+    <section className="mx-auto flex min-h-screen max-w-md flex-col items-center gap-4 px-4 py-6 overflow-hidden">
       <div className="flex w-full items-baseline justify-between">
         <span className="text-sm">Kartu {i + 1} dari {deck.length}</span>
         <span className="font-display text-xl font-semibold">Skor {score}</span>
       </div>
       <p className="w-full text-sm font-semibold text-mark">{LEVELS[card.level]}</p>
-      <div className="flex w-full justify-between text-sm font-semibold">
-        <span className="text-no">Geser kiri: buzzer</span>
-        <span className="text-yes">Geser kanan: bukan</span>
+      
+      {/* Container kartu dengan overflow-hidden agar tidak merusak viewport mobile */}
+      <div className="relative w-full overflow-hidden flex justify-center py-1">
+        {!fb && (
+          <SwipeCard
+            key={card.id}
+            card={card}
+            locked={!!fb}
+            onSwipe={(choice) => {
+              const ok = choice === card.category;
+              setAnswers((a) => [...a, ok]);
+              setFb({ ok });
+            }}
+          />
+        )}
       </div>
-      <SwipeCard
-        key={card.id}
-        card={card}
-        locked={!!fb}
-        onSwipe={(choice) => {
-          const ok = choice === card.category;
-          setAnswers((a) => [...a, ok]);
-          setFb({ ok });
-        }}
-      />
+
       {fb && <Feedback card={card} fb={fb} last={last} onNext={next} />}
     </section>
   );
